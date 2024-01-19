@@ -1,0 +1,124 @@
+Stripped-down version of vanitygaps.
+
+---
+ config.def.h |    3 +++
+ dwm.c        |   41 +++++++++++++++++++++++++++++------------
+ 2 files changed, 32 insertions(+), 12 deletions(-)
+
+diff '--color=auto' -pu a/config.def.h b/config.def.h
+--- a/config.def.h	2022-01-15 14:02:44.778596015 +0100
++++ b/config.def.h	2022-02-21 02:10:30.527907206 +0100
+@@ -3,6 +3,8 @@
+ /* appearance */
+ static const unsigned int borderpx  = 1;        /* border pixel of windows */
+ static const unsigned int snap      = 32;       /* snap pixel */
++static const unsigned int gappx     = 6;        /* gaps between windows */
++static const int smartgaps          = 1;        /* 1 means no outer gap when there is only one window */
+ static const int showbar            = 1;        /* 0 means no bar */
+ static const int topbar             = 1;        /* 0 means bottom bar */
+ static const char *fonts[]          = { "monospace:size=10" };
+@@ -71,6 +73,7 @@ static Key keys[] = {
+ 	{ MODKEY,                       XK_d,      incnmaster,     {.i = -1 } },
+ 	{ MODKEY,                       XK_h,      setmfact,       {.f = -0.05} },
+ 	{ MODKEY,                       XK_l,      setmfact,       {.f = +0.05} },
++	{ MODKEY|Mod4Mask,              XK_0,      togglegaps,     {0} },
+ 	{ MODKEY,                       XK_Return, zoom,           {0} },
+ 	{ MODKEY,                       XK_Tab,    view,           {0} },
+ 	{ MODKEY|ShiftMask,             XK_c,      killclient,     {0} },
+diff '--color=auto' -pu a/dwm.c b/dwm.c
+--- a/dwm.c	2022-01-13 11:44:00.336928938 +0100
++++ b/dwm.c	2022-02-21 02:10:30.527907206 +0100
+@@ -119,6 +119,7 @@ struct Monitor {
+ 	int by;               /* bar geometry */
+ 	int mx, my, mw, mh;   /* screen size */
+ 	int wx, wy, ww, wh;   /* window area  */
++	int gappx;            /* gaps between windows */
+ 	unsigned int seltags;
+ 	unsigned int sellt;
+ 	unsigned int tagset[2];
+@@ -200,6 +201,7 @@ static void sendmon(Client *c, Monitor *
+ static void setclientstate(Client *c, long state);
+ static void setfocus(Client *c);
+ static void setfullscreen(Client *c, int fullscreen);
++static void togglegaps(const Arg *arg);
+ static void setlayout(const Arg *arg);
+ static void setmfact(const Arg *arg);
+ static void setup(void);
+@@ -241,6 +243,7 @@ static char stext[256];
+ static int screen;
+ static int sw, sh;           /* X display screen geometry width, height */
+ static int bh, blw = 0;      /* bar geometry */
++static int enablegaps = 1;   /* enables gaps, used by togglegaps */
+ static int lrpad;            /* sum of left and right padding for text */
+ static int (*xerrorxlib)(Display *, XErrorEvent *);
+ static unsigned int numlockmask = 0;
+@@ -639,6 +642,7 @@ createmon(void)
+ 	m->nmaster = nmaster;
+ 	m->showbar = showbar;
+ 	m->topbar = topbar;
++	m->gappx = gappx;
+ 	m->lt[0] = &layouts[0];
+ 	m->lt[1] = &layouts[1 % LENGTH(layouts)];
+ 	strncpy(m->ltsymbol, layouts[0].symbol, sizeof m->ltsymbol);
+@@ -1502,6 +1506,13 @@ setfullscreen(Client *c, int fullscreen)
+ }
+ 
+ void
++togglegaps(const Arg *arg)
++{
++	enablegaps = !enablegaps;
++	arrange(selmon);
++}
++
++void
+ setlayout(const Arg *arg)
+ {
+ 	if (!arg || !arg->v || arg->v != selmon->lt[selmon->sellt])
+@@ -1677,28 +1688,34 @@ tagmon(const Arg *arg)
+ void
+ tile(Monitor *m)
+ {
+-	unsigned int i, n, h, mw, my, ty;
++	unsigned int i, n, h, r, oe = enablegaps, ie = enablegaps, mw, my, ty;
+ 	Client *c;
+ 
+ 	for (n = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), n++);
+ 	if (n == 0)
+ 		return;
+ 
++	if (smartgaps == n) {
++		oe = 0; // outer gaps disabled
++	}
++
+ 	if (n > m->nmaster)
+-		mw = m->nmaster ? m->ww * m->mfact : 0;
++		mw = m->nmaster ? (m->ww + m->gappx*ie) * m->mfact : 0;
+ 	else
+-		mw = m->ww;
+-	for (i = my = ty = 0, c = nexttiled(m->clients); c; c = nexttiled(c->next), i++)
++		mw = m->ww - 2*m->gappx*oe + m->gappx*ie;
++	for (i = 0, my = ty = m->gappx*oe, c = nexttiled(m->clients); c; c = nexttiled(c->next), i++)
+ 		if (i < m->nmaster) {
+-			h = (m->wh - my) / (MIN(n, m->nmaster) - i);
+-			resize(c, m->wx, m->wy + my, mw - (2*c->bw), h - (2*c->bw), 0);
+-			if (my + HEIGHT(c) < m->wh)
+-				my += HEIGHT(c);
++			r = MIN(n, m->nmaster) - i;
++			h = (m->wh - my - m->gappx*oe - m->gappx*ie * (r - 1)) / r;
++			resize(c, m->wx + m->gappx*oe, m->wy + my, mw - (2*c->bw) - m->gappx*ie, h - (2*c->bw), 0);
++			if (my + HEIGHT(c) + m->gappx*ie < m->wh)
++			        my += HEIGHT(c) + m->gappx*ie;
+ 		} else {
+-			h = (m->wh - ty) / (n - i);
+-			resize(c, m->wx + mw, m->wy + ty, m->ww - mw - (2*c->bw), h - (2*c->bw), 0);
+-			if (ty + HEIGHT(c) < m->wh)
+-				ty += HEIGHT(c);
++			r = n - i;
++			h = (m->wh - ty - m->gappx*oe - m->gappx*ie * (r - 1)) / r;
++			resize(c, m->wx + mw + m->gappx*oe, m->wy + ty, m->ww - mw - (2*c->bw) - 2*m->gappx*oe, h - (2*c->bw), 0);
++			if (ty + HEIGHT(c) + m->gappx*ie < m->wh)
++				ty += HEIGHT(c) + m->gappx*ie;
+ 		}
+ }
+ 
+
